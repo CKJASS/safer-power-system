@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Safer Power Group - Dashboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body { background: #f4f6f9; }
+        .navbar-brand img { max-height: 40px; margin-right: 10px; }
+        .badge-pending { background-color: #ffc107; color: #000; }
+        .badge-approved { background-color: #198754; color: #fff; }
+        .badge-rejected { background-color: #dc3545; color: #fff; }
+    </style>
+</head>
+<body>
+
+<nav class="navbar navbar-expand-lg navbar-dark bg-dark shadow-sm">
+    <div class="container">
+        <a class="navbar-brand d-flex align-items-center" href="#">
+            <!-- Logo Applied Verbatim -->
+            <img src="{{ url_for('static', filename='logo.png') }}" alt="Safer Power Group Logo">
+            <span class="fw-bold text-warning">Safer Power Group</span>
+        </a>
+        <div class="ms-auto text-light me-3 d-none d-md-inline-block">
+            <strong>{{ session['user_name'] }}</strong> <span class="text-warning">({{ session['user_role'] }})</span>
+        </div>
+        <a href="{{ url_for('logout') }}" class="btn btn-danger btn-sm">Sign Out</a>
+
+        <form action="{{ url_for('delete_account') }}" method="POST" style="display: inline;" onsubmit="return confirm('Are you absolutely sure you want to permanently delete your account? This action cannot be undone.');">
+            <button type="submit" style="background: none; border: none; color: #dc3545; cursor: pointer; margin-left: 10px; font-size: 0.9rem; text-decoration: underline;">
+                Delete Account
+            </button>
+        </form>
+    </div>
+</nav>
+
+<div class="container my-4">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            {% for category, msg in messages %}
+                <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+                    {{ msg }}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                </div>
+            {% endfor %}
+        {% endif %}
+    {% endwith %}
+
+    <div class="d-flex flex-column flex-sm-row justify-content-between align-items-sm-center mb-4 gap-2">
+        <div>
+            <h2 class="fw-bold text-dark m-0">Procurement & Costs Ledger</h2>
+            <p class="text-muted m-0">Manage operational workflow allocations</p>
+        </div>
+        <div class="d-flex gap-2">
+            {% if session['user_role'] == 'Employee' %}
+            <a href="{{ url_for('new_requisition') }}" class="btn btn-warning fw-semibold">+ New Request</a>
+            {% endif %}
+            <a href="{{ url_for('export_excel') }}" class="btn btn-success d-flex align-items-center gap-1">
+                📥 Export to Excel
+            </a>
+        </div>
+    </div>
+
+    <div class="card p-3 shadow-sm">
+        <div class="table-responsive">
+            <table class="table table-hover align-middle">
+                <thead class="table-light">
+                    <tr>
+                        <th>ID</th>
+                        <th>Requester</th>
+                        <th>Date Requested</th>
+                        <th>Items Summary</th>
+                        <th>Status</th>
+                        <th class="text-end">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for req in requisitions %}
+                    <tr>
+                        <td><strong>#{{ req.id }}</strong></td>
+                        <td>{{ req.requestor.name }}</td>
+                        <td>{{ req.date_created.strftime('%b %d, %Y') }}</td>
+                        <td>
+                            <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="collapse" data-bs-target="#items-{{ req.id }}">
+                                View Items ({{ req.items|length }})
+                            </button>
+                        </td>
+                        <td>
+                            <span class="badge {% if 'Approved' in req.status %}badge-approved{% elif 'Rejected' in req.status %}badge-rejected{% else %}badge-pending{% endif %} p-2 rounded">
+                                {{ req.status }}
+                            </span>
+                        </td>
+                        <td class="text-end" style="min-width: 180px;">
+                            {% if req.current_approver_role == session['user_role'] %}
+                                <a href="{{ url_for('handle_action', req_id=req.id, action='approve') }}" class="btn btn-sm btn-success me-1">Approve</a>
+                                <a href="{{ url_for('handle_action', req_id=req.id, action='reject') }}" class="btn btn-sm btn-danger me-1">Reject</a>
+                            {% endif %}
+                            
+                            {% if req.requestor_id == session['user_id'] or session['user_role'] == 'GM' %}
+                                <a href="{{ url_for('delete_requisition', req_id=req.id) }}" class="btn btn-sm btn-outline-dark" onclick="return confirm('Are you sure you want to cancel/delete this request?');">Delete</a>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    <tr class="collapse bg-light" id="items-{{ req.id }}">
+                        <td colspan="6" class="p-3">
+                            <div class="card border-0 shadow-none p-3 bg-white rounded">
+                                <h6><strong>Reason for Request:</strong> {{ req.reason }}</h6>
+                                <table class="table table-sm table-bordered mt-2 m-0">
+                                    <thead class="table-dark">
+                                        <tr>
+                                            <th>Description / Item Specification</th>
+                                            <th>Quantity</th>
+                                            <th>Unit Cost (KES)</th>
+                                            <th>Subtotal (KES)</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {% for item in req.items %}
+                                        <tr>
+                                            <td>{{ item.description }}</td>
+                                            <td>{{ item.quantity }}</td>
+                                            <td>{{ "{:,.2f}".format(item.estimated_cost) }}</td>
+                                            <td><strong>{{ "{:,.2f}".format(item.quantity * item.estimated_cost) }}</strong></td>
+                                        </tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="6" class="text-center py-4 text-muted">No transactions found in system routing history.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
