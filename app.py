@@ -350,21 +350,15 @@ def export_excel():
 if __name__ == '__main__':
     with app.app_context():
         db.create_all()
-        
-        # --- ADD THIS CODE TO CREATE AN INITIAL USER ---
-        # Checks if your email is already in the database
         admin_user = User.query.filter_by(email='ckjass29@gmail.com').first()
-        
         if not admin_user:
-            # Creates the user if the database is empty
             new_user = User(
                 name="Administrator",
                 email="ckjass29@gmail.com",
-                password="your_password_here",  # Put the password you want to use here
-                role="Admin"                    # Make sure this matches your model roles
+                password="your_password_here",
+                role="HR"
             )
             db.session.add(new_user)
             db.session.commit()
-        # -----------------------------------------------
 
     app.run(debug=True, host='0.0.0.0', port=5000)
