@@ -21,13 +21,9 @@ if database_url:
     app.config['SQLALCHEMY_DATABASE_URI'] = database_url
 else:
     # Local fallback for offline development
-  import os
+    basedir = os.path.abspath(os.path.dirname(__file__))
+    app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(basedir, 'database.db')
 
-# Find the absolute folder path where app.py sits
-basedir = os.path.abspath(os.path.dirname(__file__))
-
-# Point the database directly inside that folder structure safely
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(basedir, 'database.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 # ------------------------------------------------------------
 
@@ -40,24 +36,6 @@ app.config['MAIL_PASSWORD'] = os.environ.get('MAIL_PASS')
 app.config['MAIL_DEFAULT_SENDER'] = app.config['MAIL_USERNAME']
 
 db = SQLAlchemy(app)
-
-# --- PLACE IT HERE SO IT EXECUTES ONSIGNAL STARTUP ALWAYS ---
-with app.app_context():
-    db.create_all()
-    
-    # Check and seed your admin user
-    from models import User # Only use this if User is in models.py. If User is inside app.py, remove this import line!
-    admin_user = User.query.filter_by(email='ckjass29@gmail.com').first()
-    if not admin_user:
-        new_user = User(
-            name="Administrator",
-            email="ckjass29@gmail.com",
-            password="your_password_here",  # Put your preferred password string here
-            role="HR"
-        )
-        db.session.add(new_user)
-        db.session.commit()
-# ------------------------------------------------------------
 mail = Mail(app)
 
 # Hierarchy Constants
@@ -90,6 +68,23 @@ class RequisitionItem(db.Model):
     quantity = db.Column(db.Integer, nullable=False)
     estimated_cost = db.Column(db.Float, nullable=False) # In KES
 
+# --- DATABASE INITIALIZATION & SEEDING BLOCK ---
+# This executes cleanly here because the User database blueprint is defined directly above it
+with app.app_context():
+    db.create_all()
+    
+    admin_user = User.query.filter_by(email='ckjass29@gmail.com').first()
+    if not admin_user:
+        new_user = User(
+            name="Administrator",
+            email="ckjass29@gmail.com",
+            password="your_password_here",  # Change this to your chosen dashboard login password
+            role="HR"
+        )
+        db.session.add(new_user)
+        db.session.commit()
+# ------------------------------------------------------------
+
 # ------------------ Context Processors ------------------
 
 @app.context_processor
@@ -110,7 +105,6 @@ def send_email_notification(recipient_email, subject, body_text):
 def route_to_next_approver(requisition, dashboard_url):
     hierarchy = ['Supervisor', 'HR', 'Procurement', 'Finance', 'GM']
     try:
-        # Notify the requestor that their item progressed through the current level safely
         previous_role = requisition.current_approver_role
         
         current_index = hierarchy.index(requisition.current_approver_role)
