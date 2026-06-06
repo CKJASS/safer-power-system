@@ -21,8 +21,13 @@ if database_url:
     app.config['SQLALCHEMY_DATABASE_URI'] = database_url
 else:
     # Local fallback for offline development
-    app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///requisition_system.db'
+  import os
 
+# Find the absolute folder path where app.py sits
+basedir = os.path.abspath(os.path.dirname(__file__))
+
+# Point the database directly inside that folder structure safely
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(basedir, 'database.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 # ------------------------------------------------------------
 
