@@ -38,8 +38,8 @@ app.config['MAIL_DEFAULT_SENDER'] = app.config['MAIL_USERNAME']
 db = SQLAlchemy(app)
 mail = Mail(app)
 
-# Hierarchy Constants
-ROLES = ['Employee', 'Supervisor', 'HR', 'Procurement', 'Finance', 'GM']
+# Hierarchy Constants (Updated to remove Finance per configuration instructions)
+ROLES = ['Employee', 'Supervisor', 'HR', 'Procurement', 'GM']
 
 # ------------------ Database Models ------------------
 
@@ -68,17 +68,19 @@ class RequisitionItem(db.Model):
     quantity = db.Column(db.Integer, nullable=False)
     estimated_cost = db.Column(db.Float, nullable=False) # In KES
 
-# --- DATABASE INITIALIZATION & SEEDING BLOCK ---
-# This executes cleanly here because the User database blueprint is defined directly above it
+# --- FIX: DATABASE INITIALIZATION & SECURE SEEDING BLOCK ---
 with app.app_context():
     db.create_all()
     
     admin_user = User.query.filter_by(email='ckjass29@gmail.com').first()
     if not admin_user:
+        # Securely hash the password before saving to resolve the login 500/502 crash loop
+        hashed_password = generate_password_hash('saferpower2026', method='pbkdf2:sha256')
+        
         new_user = User(
             name="Administrator",
             email="ckjass29@gmail.com",
-            password="your_password_here",  # Change this to your chosen dashboard login password
+            password=hashed_password,  
             role="HR"
         )
         db.session.add(new_user)
@@ -103,7 +105,8 @@ def send_email_notification(recipient_email, subject, body_text):
         print(f"Failed to send email to {recipient_email}: {e}")
 
 def route_to_next_approver(requisition, dashboard_url):
-    hierarchy = ['Supervisor', 'HR', 'Procurement', 'Finance', 'GM']
+    # Workflow hierarchy matching active structural design roles
+    hierarchy = ['Supervisor', 'HR', 'Procurement', 'GM']
     try:
         previous_role = requisition.current_approver_role
         
