@@ -71,10 +71,10 @@ class RequisitionItem(db.Model):
 with app.app_context():
     db.create_all()
     
+    # 1. Seed HR Admin Account
     admin_user = User.query.filter_by(email='ckjass29@gmail.com').first()
     if not admin_user:
         hashed_password = generate_password_hash('saferpower2026', method='pbkdf2:sha256')
-        
         new_user = User(
             name="Administrator",
             email="ckjass29@gmail.com",
@@ -82,7 +82,20 @@ with app.app_context():
             role="HR"
         )
         db.session.add(new_user)
-        db.session.commit()
+        
+    # 2. Seed Test Supervisor Account (Prevents workflow routing crashes if list is empty)
+    test_sup = User.query.filter_by(email='supervisor@saferpower.com').first()
+    if not test_sup:
+        hashed_sup_pw = generate_password_hash('supervisor2026', method='pbkdf2:sha256')
+        new_sup = User(
+            name="Internal Supervisor",
+            email="supervisor@saferpower.com",
+            password=hashed_sup_pw,
+            role="Supervisor"
+        )
+        db.session.add(new_sup)
+        
+    db.session.commit()
 # ------------------------------------------------------------
 
 # ------------------ Context Processors ------------------
@@ -94,18 +107,22 @@ def inject_now():
 
 # ------------------ Helper Functions ------------------
 
-def send_email_notification(sender_email, recipient_email, subject, body_text):
-    """Sends notification routing strictly through the active, signed-in account email context."""
+def send_email_notification(recipient_email, subject, body_text):
+    """Sends notification safely using the authorized system account credentials."""
     try:
-        # Falls back to default system username context if sender_email context is empty
-        from_email = sender_email if sender_email else app.config['MAIL_USERNAME']
+        # Using MAIL_USERNAME as the explicit sender satisfies Google's SMTP anti-spoofing checks
+        from_email = app.config['MAIL_USERNAME']
+        if not from_email:
+            print("System Configuration Error: MAIL_USERNAME environment variable missing.")
+            return
+
         msg = Message(subject, sender=from_email, recipients=[recipient_email])
         msg.body = body_text
         mail.send(msg)
     except Exception as e:
         print(f"SMTP Notification failure handled for {recipient_email}: {e}")
 
-def route_to_next_approver(requisition, dashboard_url, active_sender):
+def route_to_next_approver(requisition, dashboard_url, active_sender_name):
     hierarchy = ['Supervisor', 'HR', 'Procurement', 'GM']
     try:
         previous_role = requisition.current_approver_role
@@ -121,36 +138,36 @@ def route_to_next_approver(requisition, dashboard_url, active_sender):
             requisition.current_approver_role = next_role
             requisition.status = f'Pending {next_role} Approval'
             
-            # 1. Notify Requestor that requisition has advanced up the workflow layout
+            # 1. Notify Requestor that requisition has moved up the chain
             if requisition.requestor and requisition.requestor.email:
                 send_email_notification(
-                    active_sender,
                     requisition.requestor.email,
                     f"Requisition #{requisition.id} Approved by {previous_role}",
-                    f"Hello {requisition.requestor.name},\n\nYour requisition #{requisition.id} has been approved by the {previous_role} tier and has moved to {next_role}.\n\nTrack progress on your dashboard link: {dashboard_url}"
+                    f"Hello {requisition.requestor.name},\n\nYour requisition #{requisition.id} has been verified and approved by {active_sender_name} ({previous_role}) and has moved to the {next_role} stage.\n\nTrack progress here: {dashboard_url}"
                 )
             
-            # 2. Notify next structural level approvers with deep links
+            # 2. Notify next level approvers (with safety check if list is empty)
             approvers = User.query.filter_by(role=next_role).all()
-            for approver in approvers:
-                if approver.email:
-                    send_email_notification(
-                        active_sender,
-                        approver.email,
-                        f"Action Required: Requisition #{requisition.id} Pending Approval",
-                        f"Hello {approver.name},\n\nRequisition #{requisition.id} submitted by {requisition.requestor.name if requisition.requestor else 'Employee'} requires your verification at the {next_role} stage.\n\nClick here to review and process: {dashboard_url}"
-                    )
+            if approvers:
+                for approver in approvers:
+                    if approver.email:
+                        send_email_notification(
+                            approver.email,
+                            f"Action Required: Requisition #{requisition.id} Pending Approval",
+                            f"Hello {approver.name},\n\nRequisition #{requisition.id} submitted by {requisition.requestor.name if requisition.requestor else 'Employee'} requires your review at the {next_role} stage.\n\nClick here to review and process: {dashboard_url}"
+                        )
+            else:
+                print(f"Workflow Notice: Requisition advanced to {next_role}, but no users are registered under this role yet.")
         else:
             requisition.status = 'Approved'
             requisition.current_approver_role = 'None'
             
-            # Final GM Level Processing Complete Notification
+            # Final GM Level Approval Notification
             if requisition.requestor and requisition.requestor.email:
                 send_email_notification(
-                    active_sender,
                     requisition.requestor.email,
                     f"Requisition #{requisition.id} Fully Approved!",
-                    f"Great news {requisition.requestor.name},\n\nYour requisition #{requisition.id} has cleared final review parameters and is fully approved.\n\nView terminal ledger here: {dashboard_url}"
+                    f"Great news {requisition.requestor.name},\n\nYour requisition #{requisition.id} has cleared final review parameters and is fully approved.\n\nView terminal details here: {dashboard_url}"
                 )
         db.session.commit()
     except Exception as e:
@@ -192,7 +209,7 @@ def login():
                 session['user_id'] = user.id
                 session['user_name'] = user.name
                 session['user_role'] = user.role
-                session['user_email'] = user.email  # Bind to session explicitly for mailing
+                session['user_email'] = user.email
                 flash(f'Welcome back, {user.name}!', 'success')
                 return redirect(url_for('dashboard'))
             else:
@@ -257,18 +274,19 @@ def new_requisition():
         db.session.commit()
         
         dashboard_url = request.host_url.rstrip('/') + url_for('dashboard')
-        active_sender = session.get('user_email')
         
-        # Pop notification out to initial approval workflows (Supervisors)
+        # Guard loop against empty Supervisor configurations
         supervisors = User.query.filter_by(role='Supervisor').all()
-        for sup in supervisors:
-            if sup.email:
-                send_email_notification(
-                    active_sender,
-                    sup.email,
-                    "Action Required: New Requisition Generated",
-                    f"Hello {sup.name},\n\nA new requisition entry #{req.id} has been submitted by {session['user_name']} requiring verification.\n\nOpen link to review asset parameters: {dashboard_url}"
-                )
+        if supervisors:
+            for sup in supervisors:
+                if sup.email:
+                    send_email_notification(
+                        sup.email,
+                        "Action Required: New Requisition Generated",
+                        f"Hello {sup.name},\n\nA new requisition entry #{req.id} has been submitted by {session['user_name']} requiring verification.\n\nOpen link to review asset parameters: {dashboard_url}"
+                    )
+        else:
+            print("Workflow Notice: Requisition created, but no user with the role 'Supervisor' exists to receive notifications.")
             
         flash('Requisition submitted successfully!', 'success')
         return redirect(url_for('dashboard'))
@@ -287,10 +305,10 @@ def handle_action(req_id, action):
         return redirect(url_for('dashboard'))
         
     dashboard_url = request.host_url.rstrip('/') + url_for('dashboard')
-    active_sender = session.get('user_email')
+    active_sender_name = session.get('user_name', 'An Approver')
         
     if action == 'approve':
-        route_to_next_approver(req, dashboard_url, active_sender)
+        route_to_next_approver(req, dashboard_url, active_sender_name)
         flash(f'Requisition #{req.id} successfully approved and routed up the workflow line.', 'success')
     elif action == 'reject':
         previous_role = session["user_role"]
@@ -301,10 +319,9 @@ def handle_action(req_id, action):
         # Alert requestor directly about item rejection status changes 
         if req.requestor and req.requestor.email:
             send_email_notification(
-                active_sender,
                 req.requestor.email,
                 f"Update: Requisition #{req.id} Rejected",
-                f"Hello {req.requestor.name},\n\nYour requisition entry #{req.id} has been rejected at the {previous_role} level.\n\nReview layout parameters on your dashboard link: {dashboard_url}"
+                f"Hello {req.requestor.name},\n\nYour requisition entry #{req.id} has been rejected by {active_sender_name} at the {previous_role} level.\n\nReview your dashboard link: {dashboard_url}"
             )
         flash(f'Requisition #{req.id} has been rejected.', 'warning')
         
