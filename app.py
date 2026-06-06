@@ -68,7 +68,7 @@ class RequisitionItem(db.Model):
     quantity = db.Column(db.Integer, nullable=False)
     estimated_cost = db.Column(db.Float, nullable=False) # In KES
 
-# --- FIX: DATABASE INITIALIZATION & SECURE SEEDING BLOCK ---
+# --- DATABASE INITIALIZATION & SECURE SEEDING BLOCK ---
 with app.app_context():
     db.create_all()
     
@@ -105,45 +105,55 @@ def send_email_notification(recipient_email, subject, body_text):
         print(f"Failed to send email to {recipient_email}: {e}")
 
 def route_to_next_approver(requisition, dashboard_url):
-    # Workflow hierarchy matching active structural design roles
+    # Active structural design roles for routing workflow
     hierarchy = ['Supervisor', 'HR', 'Procurement', 'GM']
     try:
         previous_role = requisition.current_approver_role
         
+        # Guard clause: reset status gracefully if database holds an unexpected legacy role value
+        if requisition.current_approver_role not in hierarchy:
+            requisition.current_approver_role = 'Supervisor'
+            previous_role = 'Supervisor'
+            
         current_index = hierarchy.index(requisition.current_approver_role)
+        
         if current_index + 1 < len(hierarchy):
             next_role = hierarchy[current_index + 1]
             requisition.current_approver_role = next_role
             requisition.status = f'Pending {next_role} Approval'
             
-            # 1. Notify the Requestor about progress at this level
-            send_email_notification(
-                requisition.requestor.email,
-                f"Requisition #{requisition.id} Approved by {previous_role}",
-                f"Hello {requisition.requestor.name},\n\nYour requisition #{requisition.id} has been approved by the {previous_role} tier and has moved to {next_role}.\n\nView details here: {dashboard_url}"
-            )
+            # 1. Notify the Requestor safely if user metadata relations are cleanly present
+            if requisition.requestor and requisition.requestor.email:
+                send_email_notification(
+                    requisition.requestor.email,
+                    f"Requisition #{requisition.id} Approved by {previous_role}",
+                    f"Hello {requisition.requestor.name},\n\nYour requisition #{requisition.id} has been approved by the {previous_role} tier and has moved to {next_role}.\n\nView details here: {dashboard_url}"
+                )
             
-            # 2. Notify next level approvers with direct review links
+            # 2. Notify next level approvers with strict object checking
             approvers = User.query.filter_by(role=next_role).all()
             for approver in approvers:
-                send_email_notification(
-                    approver.email,
-                    f"Action Required: Requisition #{requisition.id} Pending Approval",
-                    f"Hello {approver.name},\n\nRequisition #{requisition.id} submitted by {requisition.requestor.name} requires your review.\n\nClick this link to access the dashboard and review: {dashboard_url}"
-                )
+                if approver.email:
+                    send_email_notification(
+                        approver.email,
+                        f"Action Required: Requisition #{requisition.id} Pending Approval",
+                        f"Hello {approver.name},\n\nRequisition #{requisition.id} submitted by {requisition.requestor.name if requisition.requestor else 'Employee'} requires your review.\n\nClick this link to access the dashboard and review: {dashboard_url}"
+                    )
         else:
             requisition.status = 'Approved'
             requisition.current_approver_role = 'None'
             
             # Final Level GM Approval Notification
-            send_email_notification(
-                requisition.requestor.email,
-                f"Requisition #{requisition.id} Fully Approved!",
-                f"Great news {requisition.requestor.name},\n\nYour requisition #{requisition.id} has been fully approved by the GM level.\n\nLink to view record: {dashboard_url}"
-            )
-    except ValueError:
-        pass
-    db.session.commit()
+            if requisition.requestor and requisition.requestor.email:
+                send_email_notification(
+                    requisition.requestor.email,
+                    f"Requisition #{requisition.id} Fully Approved!",
+                    f"Great news {requisition.requestor.name},\n\nYour requisition #{requisition.id} has been fully approved by the GM level.\n\nLink to view record: {dashboard_url}"
+                )
+        db.session.commit()
+    except Exception as e:
+        print(f"Exception encountered inside routing block: {e}")
+        db.session.rollback()  # Rollback transaction context to clean up pending locks
 
 # ------------------ Routes ------------------
 
@@ -249,11 +259,12 @@ def new_requisition():
         # Notify initial workflow layer (Supervisors)
         supervisors = User.query.filter_by(role='Supervisor').all()
         for sup in supervisors:
-            send_email_notification(
-                sup.email,
-                "New Requisition Pending Approval",
-                f"Hello {sup.name},\n\nA new requisition #{req.id} has been submitted by {session['user_name']} and requires your review.\n\nClick here to open and process it: {dashboard_url}"
-            )
+            if sup.email:
+                send_email_notification(
+                    sup.email,
+                    "New Requisition Pending Approval",
+                    f"Hello {sup.name},\n\nA new requisition #{req.id} has been submitted by {session['user_name']} and requires your review.\n\nClick here to open and process it: {dashboard_url}"
+                )
             
         flash('Requisition submitted successfully!', 'success')
         return redirect(url_for('dashboard'))
@@ -275,18 +286,19 @@ def handle_action(req_id, action):
         
     if action == 'approve':
         route_to_next_approver(req, dashboard_url)
-        flash(f'Requisition #{req.id} approved and routed.', 'success')
+        flash(f'Requisition #{req.id} processed.', 'success')
     elif action == 'reject':
         previous_role = session["user_role"]
         req.status = f'Rejected by {previous_role}'
         req.current_approver_role = 'None'
         db.session.commit()
         
-        send_email_notification(
-            req.requestor.email,
-            f"Requisition #{req.id} Rejected",
-            f"Hello {req.requestor.name},\n\nYour requisition #{req.id} has been rejected at the {previous_role} level.\n\nYou can review details here: {dashboard_url}"
-        )
+        if req.requestor and req.requestor.email:
+            send_email_notification(
+                req.requestor.email,
+                f"Requisition #{req.id} Rejected",
+                f"Hello {req.requestor.name},\n\nYour requisition #{req.id} has been rejected at the {previous_role} level.\n\nYou can review details here: {dashboard_url}"
+            )
         flash(f'Requisition #{req.id} has been rejected.', 'warning')
         
     return redirect(url_for('dashboard'))
@@ -338,8 +350,8 @@ def export_excel():
         for item in r.items:
             data.append({
                 'Requisition ID': r.id,
-                'Requestor Name': r.requestor.name,
-                'Requestor Email': r.requestor.email,
+                'Requestor Name': r.requestor.name if r.requestor else 'N/A',
+                'Requestor Email': r.requestor.email if r.requestor else 'N/A',
                 'Reason': r.reason,
                 'Date Created': r.date_created.strftime('%Y-%m-%d %H:%M'),
                 'Item Description': item.description,
