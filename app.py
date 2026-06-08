@@ -1,5 +1,6 @@
 import os
 import io
+import threading  # Added threading module to offload synchronous SMTP processes
 from flask import Flask, render_template, request, redirect, url_for, flash, session, send_file
 from flask_sqlalchemy import SQLAlchemy
 from flask_mail import Mail, Message
@@ -98,8 +99,17 @@ def inject_now():
 
 # ------------------ Helper Functions ------------------
 
+def send_async_email(app_context, msg, recipient_email):
+    """Background target runner that explicitly maps an isolated app context thread to send messages."""
+    with app_context:
+        try:
+            mail.send(msg)
+            print(f"Success: Notification dispatched cleanly to {recipient_email}")
+        except Exception as e:
+            print(f"SMTP Notification failure handled for {recipient_email}: {e}")
+
 def send_email_notification(recipient_email, subject, body_text):
-    """Sends notification safely using the authorized system account credentials."""
+    """Initializes and forks off an independent application thread for emails to avoid blocking web workers."""
     try:
         from_email = app.config['MAIL_USERNAME']
         if not from_email:
@@ -108,10 +118,16 @@ def send_email_notification(recipient_email, subject, body_text):
 
         msg = Message(subject, sender=from_email, recipients=[recipient_email])
         msg.body = body_text
-        mail.send(msg)
-        print(f"Success: Notification dispatched cleanly to {recipient_email}")
+        
+        # Fork processing context over to an asynchronous task execution frame
+        email_thread = threading.Thread(
+            target=send_async_email,
+            args=(app.app_context(), msg, recipient_email)
+        )
+        email_thread.start()
+        
     except Exception as e:
-        print(f"SMTP Notification failure handled for {recipient_email}: {e}")
+        print(f"Failed to structuralize background email notification pipeline: {e}")
 
 def route_to_next_approver(requisition, dashboard_url, active_sender_name):
     hierarchy = ['Supervisor', 'HR', 'Procurement', 'GM']
@@ -241,7 +257,6 @@ def new_requisition():
         quantities = request.form.getlist('quantity[]')
         costs = request.form.getlist('cost[]')
         
-        # Guard clause against empty lists
         if not descriptions or len(descriptions) == 0:
             flash('You must add at least one item.', 'danger')
             return redirect(url_for('new_requisition'))
@@ -254,14 +269,12 @@ def new_requisition():
             has_valid_items = False
             for desc, qty, cost in zip(descriptions, quantities, costs):
                 if desc and desc.strip():
-                    # FIXED: Safe type conversion wrappers to prevent 502 crash errors
                     try:
                         parsed_qty = int(qty) if qty else 1
                     except ValueError:
                         parsed_qty = 1
                         
                     try:
-                        # Strips out currency strings or formatting artifacts safely
                         clean_cost = str(cost).replace('KES', '').replace(',', '').strip()
                         parsed_cost = float(clean_cost) if clean_cost else 0.0
                     except ValueError:
@@ -289,7 +302,6 @@ def new_requisition():
             flash('An error occurred while saving to the database database configuration.', 'danger')
             return redirect(url_for('dashboard'))
         
-        # Dispatched cleanly after database transaction commits completely
         dashboard_url = request.host_url.rstrip('/') + url_for('dashboard')
         supervisors = User.query.filter_by(role='Supervisor').all()
         if supervisors:
