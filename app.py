@@ -53,13 +53,12 @@ class Requisition(db.Model):
     status = db.Column(db.String(50), default='Pending Supervisor Approval')
     current_approver_role = db.Column(db.String(50), default='Supervisor')
     
-    # FIX: Added lazy='joined' to guarantee requestor data fields load instantly for email triggers
-    requestor = db.relationship('User', backref=db.backref('requisitions', lazy=True), lazy='joined')
+    # FIXED: Clean string backref syntax to guarantee safe, immediate query evaluation across tables
+    requestor = db.relationship('User', backref='requisitions', lazy='joined')
     items = db.relationship('RequisitionItem', backref='requisition', cascade="all, delete-orphan")
 
 class RequisitionItem(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    # CORE STRUCTURAL FIX: Re-added the missing db.Column model wrapper and field type specification
     requisition_id = db.Column(db.Integer, db.ForeignKey('requisition.id'), nullable=False)
     description = db.Column(db.String(250), nullable=False)
     quantity = db.Column(db.Integer, nullable=False)
