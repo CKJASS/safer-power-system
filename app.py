@@ -53,7 +53,6 @@ class Requisition(db.Model):
     status = db.Column(db.String(50), default='Pending Supervisor Approval')
     current_approver_role = db.Column(db.String(50), default='Supervisor')
     
-    # FIXED: Clean string backref syntax to guarantee safe, immediate query evaluation across tables
     requestor = db.relationship('User', backref='requisitions', lazy='joined')
     items = db.relationship('RequisitionItem', backref='requisition', cascade="all, delete-orphan")
 
@@ -130,7 +129,6 @@ def route_to_next_approver(requisition, dashboard_url, active_sender_name):
             requisition.current_approver_role = next_role
             requisition.status = f'Pending {next_role} Approval'
             
-            # 1. Notify Requestor that requisition has moved up the chain
             if requisition.requestor and requisition.requestor.email:
                 send_email_notification(
                     requisition.requestor.email,
@@ -138,7 +136,6 @@ def route_to_next_approver(requisition, dashboard_url, active_sender_name):
                     f"Hello {requisition.requestor.name},\n\nYour requisition #{requisition.id} has been verified and approved by {active_sender_name} ({previous_role}) and has moved to the {next_role} stage.\n\nTrack progress here: {dashboard_url}"
                 )
             
-            # 2. Notify next level approvers
             approvers = User.query.filter_by(role=next_role).all()
             if approvers:
                 for approver in approvers:
@@ -154,7 +151,6 @@ def route_to_next_approver(requisition, dashboard_url, active_sender_name):
             requisition.status = 'Approved'
             requisition.current_approver_role = 'None'
             
-            # Final GM Level Approval Notification back to sender
             if requisition.requestor and requisition.requestor.email:
                 send_email_notification(
                     requisition.requestor.email,
@@ -240,33 +236,61 @@ def new_requisition():
         return redirect(url_for('login'))
         
     if request.method == 'POST':
-        reason = request.form.get('reason')
+        reason = request.form.get('reason', '').strip()
         descriptions = request.form.getlist('description[]')
         quantities = request.form.getlist('quantity[]')
         costs = request.form.getlist('cost[]')
         
+        # Guard clause against empty lists
         if not descriptions or len(descriptions) == 0:
             flash('You must add at least one item.', 'danger')
             return redirect(url_for('new_requisition'))
             
-        req = Requisition(requestor_id=session['user_id'], reason=reason)
-        db.session.add(req)
-        db.session.flush() 
-        
-        for desc, qty, cost in zip(descriptions, quantities, costs):
-            if desc.strip():
-                item = RequisitionItem(
-                    requisition_id=req.id,
-                    description=desc,
-                    quantity=int(qty),
-                    estimated_cost=float(cost)
-                )
-                db.session.add(item)
+        try:
+            req = Requisition(requestor_id=session['user_id'], reason=reason)
+            db.session.add(req)
+            db.session.flush() 
+            
+            has_valid_items = False
+            for desc, qty, cost in zip(descriptions, quantities, costs):
+                if desc and desc.strip():
+                    # FIXED: Safe type conversion wrappers to prevent 502 crash errors
+                    try:
+                        parsed_qty = int(qty) if qty else 1
+                    except ValueError:
+                        parsed_qty = 1
+                        
+                    try:
+                        # Strips out currency strings or formatting artifacts safely
+                        clean_cost = str(cost).replace('KES', '').replace(',', '').strip()
+                        parsed_cost = float(clean_cost) if clean_cost else 0.0
+                    except ValueError:
+                        parsed_cost = 0.0
+
+                    item = RequisitionItem(
+                        requisition_id=req.id,
+                        description=desc.strip(),
+                        quantity=parsed_qty,
+                        estimated_cost=parsed_cost
+                    )
+                    db.session.add(item)
+                    has_valid_items = True
+            
+            if not has_valid_items:
+                db.session.rollback()
+                flash('Requisition contains no valid item descriptions.', 'danger')
+                return redirect(url_for('new_requisition'))
                 
-        db.session.commit()
+            db.session.commit()
+            
+        except Exception as e:
+            db.session.rollback()
+            print(f"Database insertion crash handled safely: {e}")
+            flash('An error occurred while saving to the database database configuration.', 'danger')
+            return redirect(url_for('dashboard'))
         
+        # Dispatched cleanly after database transaction commits completely
         dashboard_url = request.host_url.rstrip('/') + url_for('dashboard')
-        
         supervisors = User.query.filter_by(role='Supervisor').all()
         if supervisors:
             for sup in supervisors:
