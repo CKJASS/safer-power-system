@@ -25,8 +25,9 @@ else:
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 # ------------------------------------------------------------
 
-# Email Configuration (With automated key matching fallback logic)
-app.config['MAIL_SERVER'] = 'smtp.gmail.com'
+# ------------------ Automated SMTP Mail Configuration ------------------
+# Configured for Brevo Engine to entirely bypass Google's locked down App Password restrictions
+app.config['MAIL_SERVER'] = 'smtp-relay.brevo.com'
 app.config['MAIL_PORT'] = 587
 app.config['MAIL_USE_TLS'] = True
 app.config['MAIL_USERNAME'] = os.environ.get('MAIL_USERNAME') or os.environ.get('MAIL_USER')
@@ -262,7 +263,13 @@ def new_requisition():
             return redirect(url_for('new_requisition'))
             
         try:
-            req = Requisition(requestor_id=session['user_id'], reason=reason)
+            # 1. Initialize Requisition with tracking states explicitly mapped
+            req = Requisition(
+                requestor_id=session['user_id'], 
+                reason=reason,
+                status='Pending Supervisor Approval',
+                current_approver_role='Supervisor'
+            )
             db.session.add(req)
             db.session.flush() 
             
@@ -294,23 +301,36 @@ def new_requisition():
                 flash('Requisition contains no valid item descriptions.', 'danger')
                 return redirect(url_for('new_requisition'))
                 
+            # 2. Commit transaction completely before running background threads
             db.session.commit()
+            
+            # 3. Refresh instance to ensure relationships are linked cleanly
+            db.refresh(req)
             
         except Exception as e:
             db.session.rollback()
             print(f"Database insertion crash handled safely: {e}")
-            flash('An error occurred while saving to the database database configuration.', 'danger')
+            flash('An error occurred while saving your requisition.', 'danger')
             return redirect(url_for('dashboard'))
         
+        # 4. Notification Loop: Alert Requestor and Supervisors
         dashboard_url = request.host_url.rstrip('/') + url_for('dashboard')
+        
+        if 'user_email' in session:
+            send_email_notification(
+                session['user_email'],
+                f"Requisition #{req.id} Successfully Created",
+                f"Hello {session['user_name']},\n\nYour requisition #{req.id} has been logged in the system.\nStatus: Pending Supervisor Approval\n\nTrack progress here: {dashboard_url}"
+            )
+
         supervisors = User.query.filter_by(role='Supervisor').all()
         if supervisors:
             for sup in supervisors:
                 if sup.email:
                     send_email_notification(
                         sup.email,
-                        "Action Required: New Requisition Generated",
-                        f"Hello {sup.name},\n\nA new requisition entry #{req.id} has been submitted by {session['user_name']} requiring verification.\n\nOpen link to review asset parameters: {dashboard_url}"
+                        f"Action Required: New Requisition Entry #{req.id}",
+                        f"Hello {sup.name},\n\nA new requisition entry #{req.id} has been submitted by {session['user_name']} requiring your review.\n\nOpen dashboard link to process: {dashboard_url}"
                     )
         else:
             print("Workflow Notice: Requisition created, but no user with the role 'Supervisor' exists.")
