@@ -7,7 +7,7 @@ from flask_mail import Mail, Message
 from werkzeug.security import generate_password_hash, check_password_hash
 import pandas as pd
 from datetime import datetime
-
+# Triggering fresh deployment to link Postgres
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'safer_power_secret_key_default')
 
