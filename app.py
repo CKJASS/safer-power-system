@@ -8,36 +8,32 @@ import pandas as pd
 from datetime import datetime
 
 app = Flask(__name__)
-# Production fallback logic for secret key security
 app.secret_key = os.environ.get('SECRET_KEY', 'safer_power_secret_key_default')
 
 # ------------------ Database Configuration ------------------
 database_url = os.environ.get('DATABASE_URL')
 
 if database_url:
-    # SQLAlchemy requires the prefix to be 'postgresql://' instead of 'postgres://'
     if database_url.startswith("postgres://"):
         database_url = database_url.replace("postgres://", "postgresql://", 1)
     app.config['SQLALCHEMY_DATABASE_URI'] = database_url
 else:
-    # Local fallback for offline development
     basedir = os.path.abspath(os.path.dirname(__file__))
     app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(basedir, 'database.db')
 
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 # ------------------------------------------------------------
 
-# Email Configuration
+# Email Configuration (With automated key matching fallback logic)
 app.config['MAIL_SERVER'] = 'smtp.gmail.com'
 app.config['MAIL_PORT'] = 587
 app.config['MAIL_USE_TLS'] = True
-app.config['MAIL_USERNAME'] = os.environ.get('MAIL_USER')
-app.config['MAIL_PASSWORD'] = os.environ.get('MAIL_PASS')
+app.config['MAIL_USERNAME'] = os.environ.get('MAIL_USER') or os.environ.get('MAIL_USERNAME')
+app.config['MAIL_PASSWORD'] = os.environ.get('MAIL_PASS') or os.environ.get('MAIL_PASSWORD')
 
 db = SQLAlchemy(app)
 mail = Mail(app)
 
-# Hierarchy Constants (Workflow routes exclusively through core tiers)
 ROLES = ['Employee', 'Supervisor', 'HR', 'Procurement', 'GM']
 
 # ------------------ Database Models ------------------
@@ -47,7 +43,7 @@ class User(db.Model):
     name = db.Column(db.String(100), nullable=False)
     email = db.Column(db.String(120), unique=True, nullable=False)
     password = db.Column(db.String(200), nullable=False)
-    role = db.Column(db.String(50), nullable=False) # Employee, Supervisor, HR, etc.
+    role = db.Column(db.String(50), nullable=False) 
 
 class Requisition(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -57,21 +53,21 @@ class Requisition(db.Model):
     status = db.Column(db.String(50), default='Pending Supervisor Approval')
     current_approver_role = db.Column(db.String(50), default='Supervisor')
     
-    requestor = db.relationship('User', backref='requisitions')
+    # FIX: Added lazy='joined' to guarantee requestor data fields load instantly for email triggers
+    requestor = db.relationship('User', backref=db.backref('requisitions', lazy=True), lazy='joined')
     items = db.relationship('RequisitionItem', backref='requisition', cascade="all, delete-orphan")
 
 class RequisitionItem(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    requisition_id = db.Column(db.Integer, db.ForeignKey('requisition.id'), nullable=False)
+    requisition_id = db.Column(db.ForeignKey('requisition.id'), nullable=False)
     description = db.Column(db.String(250), nullable=False)
     quantity = db.Column(db.Integer, nullable=False)
-    estimated_cost = db.Column(db.Float, nullable=False) # In KES
+    estimated_cost = db.Column(db.Float, nullable=False) 
 
 # --- DATABASE INITIALIZATION & SECURE SEEDING BLOCK ---
 with app.app_context():
     db.create_all()
     
-    # 1. Seed HR Admin Account
     admin_user = User.query.filter_by(email='ckjass29@gmail.com').first()
     if not admin_user:
         hashed_password = generate_password_hash('saferpower2026', method='pbkdf2:sha256')
@@ -83,7 +79,6 @@ with app.app_context():
         )
         db.session.add(new_user)
         
-    # 2. Seed Test Supervisor Account (Prevents workflow routing crashes if list is empty)
     test_sup = User.query.filter_by(email='supervisor@saferpower.com').first()
     if not test_sup:
         hashed_sup_pw = generate_password_hash('supervisor2026', method='pbkdf2:sha256')
@@ -98,11 +93,8 @@ with app.app_context():
     db.session.commit()
 # ------------------------------------------------------------
 
-# ------------------ Context Processors ------------------
-
 @app.context_processor
 def inject_now():
-    """Injects current date safely across UI views globally to prevent template crashes."""
     return {'datetime_now': datetime.utcnow().strftime('%B %d, %Y')}
 
 # ------------------ Helper Functions ------------------
@@ -110,7 +102,6 @@ def inject_now():
 def send_email_notification(recipient_email, subject, body_text):
     """Sends notification safely using the authorized system account credentials."""
     try:
-        # Using MAIL_USERNAME as the explicit sender satisfies Google's SMTP anti-spoofing checks
         from_email = app.config['MAIL_USERNAME']
         if not from_email:
             print("System Configuration Error: MAIL_USERNAME environment variable missing.")
@@ -119,6 +110,7 @@ def send_email_notification(recipient_email, subject, body_text):
         msg = Message(subject, sender=from_email, recipients=[recipient_email])
         msg.body = body_text
         mail.send(msg)
+        print(f"Success: Notification dispatched cleanly to {recipient_email}")
     except Exception as e:
         print(f"SMTP Notification failure handled for {recipient_email}: {e}")
 
@@ -146,7 +138,7 @@ def route_to_next_approver(requisition, dashboard_url, active_sender_name):
                     f"Hello {requisition.requestor.name},\n\nYour requisition #{requisition.id} has been verified and approved by {active_sender_name} ({previous_role}) and has moved to the {next_role} stage.\n\nTrack progress here: {dashboard_url}"
                 )
             
-            # 2. Notify next level approvers (with safety check if list is empty)
+            # 2. Notify next level approvers
             approvers = User.query.filter_by(role=next_role).all()
             if approvers:
                 for approver in approvers:
@@ -162,7 +154,7 @@ def route_to_next_approver(requisition, dashboard_url, active_sender_name):
             requisition.status = 'Approved'
             requisition.current_approver_role = 'None'
             
-            # Final GM Level Approval Notification
+            # Final GM Level Approval Notification back to sender
             if requisition.requestor and requisition.requestor.email:
                 send_email_notification(
                     requisition.requestor.email,
@@ -275,7 +267,6 @@ def new_requisition():
         
         dashboard_url = request.host_url.rstrip('/') + url_for('dashboard')
         
-        # Guard loop against empty Supervisor configurations
         supervisors = User.query.filter_by(role='Supervisor').all()
         if supervisors:
             for sup in supervisors:
@@ -286,7 +277,7 @@ def new_requisition():
                         f"Hello {sup.name},\n\nA new requisition entry #{req.id} has been submitted by {session['user_name']} requiring verification.\n\nOpen link to review asset parameters: {dashboard_url}"
                     )
         else:
-            print("Workflow Notice: Requisition created, but no user with the role 'Supervisor' exists to receive notifications.")
+            print("Workflow Notice: Requisition created, but no user with the role 'Supervisor' exists.")
             
         flash('Requisition submitted successfully!', 'success')
         return redirect(url_for('dashboard'))
@@ -316,14 +307,13 @@ def handle_action(req_id, action):
         req.current_approver_role = 'None'
         db.session.commit()
         
-        # Alert requestor directly about item rejection status changes 
         if req.requestor and req.requestor.email:
             send_email_notification(
                 req.requestor.email,
                 f"Update: Requisition #{req.id} Rejected",
                 f"Hello {req.requestor.name},\n\nYour requisition entry #{req.id} has been rejected by {active_sender_name} at the {previous_role} level.\n\nReview your dashboard link: {dashboard_url}"
             )
-        flash(f'Requisition #{req.id} has been rejected.', 'warning')
+        flash(f'Requisition #{req.id} has been revoked.', 'warning')
         
     return redirect(url_for('dashboard'))
 
