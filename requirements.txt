@@ -2,7 +2,7 @@
 Flask==3.0.3
 Flask-SQLAlchemy==3.1.1
 Werkzeug==3.0.3
-
+gunicorn
 # Excel Export
 openpyxl==3.1.5
 
