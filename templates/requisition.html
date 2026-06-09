@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Safer Power Group - New Requisition</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <style>
+        body { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; }
+        .card { border-radius: 15px; border: none; box-shadow: 0 10px 40px rgba(0,0,0,0.1); }
+        .header-logo { max-height: 60px; margin-right: 15px; }
+        .logo-container {
+            background: white;
+            padding: 10px;
+            border-radius: 12px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .item-row {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 15px;
+            transition: all 0.3s;
+        }
+        .item-row:hover {
+            background: #f0f0f0;
+            transform: translateX(5px);
+        }
+        .remove-item-btn {
+            margin-top: 30px;
+        }
+        .workflow-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 15px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+        .workflow-badge.supervisor { background: #0d6efd; color: white; }
+        .workflow-badge.hr { background: #6f42c1; color: white; }
+        .workflow-badge.procurement { background: #fd7e14; color: white; }
+        .workflow-badge.finance { background: #20c997; color: white; }
+        .workflow-badge.gm { background: #dc3545; color: white; }
+        .form-label {
+            font-weight: 600;
+            color: #333;
+        }
+        .btn-submit {
+            background: linear-gradient(135deg, #f0a500 0%, #d49200 100%);
+            color: white;
+            font-weight: 600;
+            border: none;
+            padding: 12px 30px;
+            transition: all 0.3s;
+        }
+        .btn-submit:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(240, 165, 0, 0.3);
+            color: white;
+        }
+        .total-display {
+            font-size: 18px;
+            font-weight: bold;
+            color: #f0a500;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container my-5">
+    <div class="col-12 col-lg-10 mx-auto">
+        <div class="card p-4 shadow-sm">
+            <div class="d-flex align-items-center justify-content-between mb-4 flex-wrap">
+                <div class="d-flex align-items-center">
+                    <div class="logo-container">
+                        <img src="{{ url_for('static', filename='logo.png') }}" alt="Safer Power Group Logo" class="header-logo" style="max-height: 55px; width: auto;">
+                    </div>
+                    <div class="ms-3">
+                        <h3 class="fw-bold m-0 text-dark">Material & Services Requisition</h3>
+                        <p class="text-muted m-0 small">Safer Power Group Multi-Level Authorization Chain</p>
+                    </div>
+                </div>
+                <div class="mt-2 mt-sm-0">
+                    <span class="badge bg-warning text-dark p-2">
+                        <i class="fas fa-clock me-1"></i> Draft
+                    </span>
+                </div>
+            </div>
+            <hr>
+
+            <form method="POST" action="{{ url_for('new_requisition') }}" id="requisitionForm">
+                <div class="row mb-4">
+                    <div class="col-md-4 mb-3 mb-md-0">
+                        <label class="form-label">
+                            <i class="fas fa-user text-warning me-1"></i>Requestor Name
+                        </label>
+                        <input type="text" class="form-control bg-light" value="{{ session['user_name'] }}" readonly>
+                    </div>
+                    <div class="col-md-4 mb-3 mb-md-0">
+                        <label class="form-label">
+                            <i class="fas fa-building text-warning me-1"></i>Department
+                        </label>
+                        <input type="text" class="form-control bg-light" value="{{ session.get('department_name', 'Not Assigned - Contact HR') }}" readonly>
+                        {% if not session.get('department_name') %}
+                        <small class="text-danger">
+                            <i class="fas fa-exclamation-triangle"></i> No department assigned. Please contact HR.
+                        </small>
+                        {% endif %}
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">
+                            <i class="fas fa-calendar-alt text-warning me-1"></i>Date
+                        </label>
+                        <input type="text" class="form-control bg-light" value="{{ datetime_now }}" readonly>
+                    </div>
+                </div>
+
+                <div class="mb-4">
+                    <label class="form-label">
+                        <i class="fas fa-quote-left text-warning me-1"></i>Reason for Request / Business Justification
+                    </label>
+                    <textarea name="reason" class="form-control" rows="4" required placeholder="Provide clear descriptions of what operations these assets/services support... Include any urgent business needs or deadlines if applicable."></textarea>
+                    <small class="text-muted">Be specific about how this request supports company operations</small>
+                </div>
+
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h5 class="fw-bold text-secondary mb-0">
+                        <i class="fas fa-boxes text-warning me-2"></i>Items Requested
+                    </h5>
+                    <button type="button" id="add-item-btn" class="btn btn-sm btn-outline-primary">
+                        <i class="fas fa-plus me-1"></i> Add Item
+                    </button>
+                </div>
+                
+                <div id="items-container">
+                    <div class="item-row">
+                        <div class="row g-3 align-items-end">
+                            <div class="col-12 col-md-5">
+                                <label class="form-label small text-muted">Item Description / Specification</label>
+                                <input type="text" name="description[]" class="form-control" required placeholder="e.g., HP LaserJet Printer, Office Chairs, Network Cables">
+                            </div>
+                            <div class="col-6 col-md-2">
+                                <label class="form-label small text-muted">Quantity</label>
+                                <input type="number" name="quantity[]" class="form-control quantity-input" min="1" required placeholder="1" value="1">
+                            </div>
+                            <div class="col-6 col-md-3">
+                                <label class="form-label small text-muted">Unit Cost (KES)</label>
+                                <input type="number" step="0.01" name="cost[]" class="form-control cost-input" min="0" required placeholder="0.00" value="0">
+                            </div>
+                            <div class="col-12 col-md-2 text-center">
+                                <button type="button" class="btn btn-outline-danger w-100 remove-item-btn">
+                                    <i class="fas fa-trash"></i> Remove
+                                </button>
+                            </div>
+                        </div>
+                        <div class="row mt-2">
+                            <div class="col-md-5 offset-md-5">
+                                <small class="text-muted">Subtotal: KES <span class="item-subtotal">0.00</span></small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Total Display -->
+                <div class="row mt-3 mb-4">
+                    <div class="col-md-8 offset-md-4">
+                        <div class="p-3 bg-light rounded">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <strong class="fs-5">Total Requisition Value:</strong>
+                                <span class="total-display fs-3" id="grandTotal">KES 0.00</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Workflow Information -->
+                <div class="alert alert-info mb-4">
+                    <div class="d-flex align-items-start">
+                        <i class="fas fa-info-circle fs-4 me-3 mt-1"></i>
+                        <div>
+                            <strong class="d-block mb-2">📋 Approval Workflow Information:</strong>
+                            <p class="mb-2">Your requisition will follow this sequential approval process:</p>
+                            <div class="d-flex flex-wrap gap-2 mb-2">
+                                <span class="workflow-badge supervisor"><i class="fas fa-user-check"></i> 1. Supervisor</span>
+                                <i class="fas fa-arrow-right text-muted"></i>
+                                <span class="workflow-badge hr"><i class="fas fa-users"></i> 2. HR</span>
+                                <i class="fas fa-arrow-right text-muted"></i>
+                                <span class="workflow-badge procurement"><i class="fas fa-shopping-cart"></i> 3. Procurement</span>
+                                <i class="fas fa-arrow-right text-muted"></i>
+                                <span class="workflow-badge finance"><i class="fas fa-chart-line"></i> 4. Finance</span>
+                                <i class="fas fa-arrow-right text-muted"></i>
+                                <span class="workflow-badge gm"><i class="fas fa-crown"></i> 5. GM</span>
+                            </div>
+                            <small class="text-muted">
+                                <i class="fas fa-envelope"></i> You and each approver will receive email notifications at every stage.
+                            </small>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="d-flex justify-content-end gap-3">
+                    <a href="{{ url_for('dashboard') }}" class="btn btn-light border px-4">
+                        <i class="fas fa-times me-1"></i> Cancel
+                    </a>
+                    <button type="submit" class="btn btn-submit px-5" id="submitBtn">
+                        <i class="fas fa-paper-plane me-2"></i> Submit for Approval
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+    // Calculate subtotal for a single row
+    function calculateRowSubtotal(row) {
+        const quantity = parseFloat(row.querySelector('.quantity-input')?.value) || 0;
+        const cost = parseFloat(row.querySelector('.cost-input')?.value) || 0;
+        const subtotal = quantity * cost;
+        const subtotalSpan = row.querySelector('.item-subtotal');
+        if (subtotalSpan) {
+            subtotalSpan.textContent = subtotal.toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        }
+        return subtotal;
+    }
+    
+    // Calculate grand total for all rows
+    function calculateGrandTotal() {
+        const rows = document.querySelectorAll('.item-row');
+        let grandTotal = 0;
+        rows.forEach(row => {
+            grandTotal += calculateRowSubtotal(row);
+        });
+        document.getElementById('grandTotal').textContent = 'KES ' + grandTotal.toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+    
+    // Add event listeners to inputs in a row
+    function addRowEventListeners(row) {
+        const quantityInput = row.querySelector('.quantity-input');
+        const costInput = row.querySelector('.cost-input');
+        
+        if (quantityInput) {
+            quantityInput.addEventListener('input', () => {
+                calculateRowSubtotal(row);
+                calculateGrandTotal();
+            });
+        }
+        
+        if (costInput) {
+            costInput.addEventListener('input', () => {
+                calculateRowSubtotal(row);
+                calculateGrandTotal();
+            });
+        }
+        
+        // Initial calculation
+        calculateRowSubtotal(row);
+    }
+    
+    // Add new item row
+    document.getElementById('add-item-btn').addEventListener('click', function() {
+        const container = document.getElementById('items-container');
+        const originalRow = document.querySelector('.item-row');
+        const newRow = originalRow.cloneNode(true);
+        
+        // Clear input values
+        newRow.querySelectorAll('input').forEach(input => {
+            if (input.classList.contains('quantity-input')) {
+                input.value = '1';
+            } else if (input.classList.contains('cost-input')) {
+                input.value = '0';
+            } else {
+                input.value = '';
+            }
+        });
+        
+        // Update subtotal display
+        const subtotalSpan = newRow.querySelector('.item-subtotal');
+        if (subtotalSpan) subtotalSpan.textContent = '0.00';
+        
+        container.appendChild(newRow);
+        addRowEventListeners(newRow);
+        attachDeleteEvents();
+        calculateGrandTotal();
+    });
+    
+    // Delete row functionality
+    function attachDeleteEvents() {
+        document.querySelectorAll('.remove-item-btn').forEach(button => {
+            button.onclick = function() {
+                const totalRows = document.querySelectorAll('.item-row').length;
+                if(totalRows > 1) {
+                    this.closest('.item-row').remove();
+                    calculateGrandTotal();
+                } else {
+                    alert('Requisitions require at least 1 line item. Please add items to your request.');
+                }
+            };
+        });
+    }
+    
+    // Form validation before submit
+    document.getElementById('requisitionForm').addEventListener('submit', function(e) {
+        const reason = document.querySelector('textarea[name="reason"]').value.trim();
+        if (!reason) {
+            e.preventDefault();
+            alert('Please provide a reason for this requisition.');
+            return false;
+        }
+        
+        const rows = document.querySelectorAll('.item-row');
+        let hasValidItems = false;
+        
+        rows.forEach(row => {
+            const desc = row.querySelector('input[name="description[]"]').value.trim();
+            const qty = parseFloat(row.querySelector('.quantity-input')?.value) || 0;
+            const cost = parseFloat(row.querySelector('.cost-input')?.value) || 0;
+            
+            if (desc && qty > 0 && cost >= 0) {
+                hasValidItems = true;
+            }
+        });
+        
+        if (!hasValidItems) {
+            e.preventDefault();
+            alert('Please add at least one valid item with description, quantity, and cost.');
+            return false;
+        }
+        
+        const department = "{{ session.get('department_name', '') }}";
+        if (!department || department === 'Not Assigned - Contact HR') {
+            e.preventDefault();
+            alert('Your account has not been assigned to a department. Please contact HR before creating requisitions.');
+            return false;
+        }
+        
+        return true;
+    });
+    
+    // Initialize event listeners for existing rows
+    document.querySelectorAll('.item-row').forEach(row => {
+        addRowEventListeners(row);
+    });
+    attachDeleteEvents();
+    calculateGrandTotal();
+    
+    // Auto-save draft to localStorage (optional feature)
+    function autoSaveDraft() {
+        const formData = {
+            reason: document.querySelector('textarea[name="reason"]')?.value || '',
+            items: []
+        };
+        
+        document.querySelectorAll('.item-row').forEach(row => {
+            const desc = row.querySelector('input[name="description[]"]')?.value || '';
+            const qty = row.querySelector('.quantity-input')?.value || '1';
+            const cost = row.querySelector('.cost-input')?.value || '0';
+            if (desc) {
+                formData.items.push({ description: desc, quantity: qty, cost: cost });
+            }
+        });
+        
+        localStorage.setItem('requisitionDraft', JSON.stringify(formData));
+    }
+    
+    // Auto-save every 30 seconds
+    setInterval(autoSaveDraft, 30000);
+    
+    // Load draft if exists (optional)
+    function loadDraft() {
+        const draft = localStorage.getItem('requisitionDraft');
+        if (draft) {
+            if (confirm('You have a saved draft. Would you like to load it?')) {
+                const data = JSON.parse(draft);
+                document.querySelector('textarea[name="reason"]').value = data.reason;
+                
+                // Clear existing items except first
+                const container = document.getElementById('items-container');
+                const rows = document.querySelectorAll('.item-row');
+                for (let i = 1; i < rows.length; i++) {
+                    rows[i].remove();
+                }
+                
+                // Load items
+                data.items.forEach((item, index) => {
+                    if (index > 0) {
+                        document.getElementById('add-item-btn').click();
+                    }
+                    const currentRow = document.querySelectorAll('.item-row')[index];
+                    if (currentRow) {
+                        currentRow.querySelector('input[name="description[]"]').value = item.description;
+                        currentRow.querySelector('.quantity-input').value = item.quantity;
+                        currentRow.querySelector('.cost-input').value = item.cost;
+                        addRowEventListeners(currentRow);
+                    }
+                });
+                calculateGrandTotal();
+            }
+            localStorage.removeItem('requisitionDraft');
+        }
+    }
+    
+    // Uncomment to enable draft loading
+    // loadDraft();
+</script>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

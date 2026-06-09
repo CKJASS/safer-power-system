@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Requisition Status - Safer Power Group</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <style>
+        body { background: #f4f6f9; }
+        .timeline {
+            position: relative;
+            padding: 20px 0;
+        }
+        .timeline-item {
+            padding: 20px;
+            margin-bottom: 20px;
+            background: white;
+            border-radius: 10px;
+            position: relative;
+            border-left: 4px solid;
+            transition: all 0.3s;
+        }
+        .timeline-item.pending { border-left-color: #ffc107; background: #fffef7; }
+        .timeline-item.approved { border-left-color: #28a745; background: #f0fff4; }
+        .timeline-item.rejected { border-left-color: #dc3545; background: #fff5f5; }
+        .timeline-icon {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            margin-right: 15px;
+        }
+        .timeline-icon.approved { background: #28a745; color: white; }
+        .timeline-icon.pending { background: #ffc107; color: black; }
+        .timeline-icon.rejected { background: #dc3545; color: white; }
+        .timeline-icon.waiting { background: #6c757d; color: white; }
+        .status-badge {
+            font-size: 14px;
+            padding: 5px 10px;
+            border-radius: 20px;
+        }
+    </style>
+</head>
+<body>
+
+<nav class="navbar navbar-dark bg-dark">
+    <div class="container">
+        <a class="navbar-brand" href="{{ url_for('dashboard') }}">
+            <i class="fas fa-arrow-left"></i> Back to Dashboard
+        </a>
+        <span class="text-light">Safer Power Group</span>
+    </div>
+</nav>
+
+<div class="container my-4">
+    <div class="row">
+        <div class="col-lg-8 mx-auto">
+            <!-- Requisition Header Card -->
+            <div class="card shadow-sm mb-4">
+                <div class="card-header bg-white">
+                    <h3 class="mb-0">
+                        <i class="fas fa-file-alt text-warning"></i> 
+                        Requisition #{{ requisition.id }}
+                        <span class="badge {% if requisition.status == 'Approved' %}bg-success{% elif requisition.status == 'Rejected' %}bg-danger{% else %}bg-warning{% endif %} ms-2">
+                            {{ requisition.status }}
+                        </span>
+                    </h3>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <p><strong><i class="fas fa-user"></i> Requestor:</strong> {{ requisition.requestor.name }}</p>
+                            <p><strong><i class="fas fa-building"></i> Department:</strong> {{ requisition.department_ref.name if requisition.department_ref else 'N/A' }}</p>
+                            <p><strong><i class="fas fa-calendar"></i> Date Created:</strong> {{ requisition.date_created.strftime('%B %d, %Y - %H:%M') }}</p>
+                        </div>
+                        <div class="col-md-6">
+                            <p><strong><i class="fas fa-money-bill"></i> Total Value:</strong> <span class="fw-bold text-success">KES {{ "{:,.2f}".format(total_value) }}</span></p>
+                            <p><strong><i class="fas fa-chart-line"></i> Current Level:</strong> 
+                                {% if requisition.current_approval_level <= 5 %}
+                                <span class="badge bg-info">{{ get_role_for_level(requisition.current_approval_level) }}</span>
+                                {% else %}
+                                <span class="badge bg-success">Complete</span>
+                                {% endif %}
+                            </p>
+                            <p><strong><i class="fas fa-clock"></i> Last Updated:</strong> {{ requisition.date_updated.strftime('%B %d, %Y - %H:%M') if requisition.date_updated else 'N/A' }}</p>
+                        </div>
+                    </div>
+                    <div class="mt-3 p-3 bg-light rounded">
+                        <strong><i class="fas fa-quote-left"></i> Reason for Request:</strong>
+                        <p class="mt-2 mb-0">{{ requisition.reason }}</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Items Card -->
+            <div class="card shadow-sm mb-4">
+                <div class="card-header bg-white">
+                    <h5 class="mb-0"><i class="fas fa-boxes"></i> Requested Items</h5>
+                </div>
+                <div class="card-body p-0">
+                    <div class="table-responsive">
+                        <table class="table table-bordered mb-0">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Description</th>
+                                    <th>Quantity</th>
+                                    <th>Unit Cost (KES)</th>
+                                    <th>Total (KES)</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for item in requisition.items %}
+                                <tr>
+                                    <td>{{ item.description }}</td>
+                                    <td>{{ item.quantity }}</td>
+                                    <td>{{ "{:,.2f}".format(item.estimated_cost) }}</td>
+                                    <td>{{ "{:,.2f}".format(item.quantity * item.estimated_cost) }}</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Approval Timeline -->
+            <div class="card shadow-sm">
+                <div class="card-header bg-white">
+                    <h5 class="mb-0"><i class="fas fa-tasks"></i> Approval Workflow Timeline</h5>
+                </div>
+                <div class="card-body">
+                    <div class="timeline">
+                        {% set approval_levels = {
+                            1: {'role': 'Supervisor', 'icon': 'fa-user-check', 'order': 1},
+                            2: {'role': 'HR', 'icon': 'fa-users', 'order': 2},
+                            3: {'role': 'Procurement', 'icon': 'fa-shopping-cart', 'order': 3},
+                            4: {'role': 'Finance', 'icon': 'fa-chart-line', 'order': 4},
+                            5: {'role': 'GM', 'icon': 'fa-crown', 'order': 5}
+                        } %}
+                        
+                        {% for level, data in approval_levels.items() %}
+                            {% set approval = approvals|selectattr('approval_level', 'equalto', level)|first %}
+                            {% if approval %}
+                                {% if approval.status == 'Approved' %}
+                                    {% set status_class = 'approved' %}
+                                    {% set icon_class = 'fa-check-circle' %}
+                                {% elif approval.status == 'Rejected' %}
+                                    {% set status_class = 'rejected' %}
+                                    {% set icon_class = 'fa-times-circle' %}
+                                {% elif level == requisition.current_approval_level and requisition.status != 'Approved' and requisition.status != 'Rejected' %}
+                                    {% set status_class = 'pending' %}
+                                    {% set icon_class = 'fa-hourglass-half' %}
+                                {% else %}
+                                    {% set status_class = 'waiting' %}
+                                    {% set icon_class = 'fa-clock' %}
+                                {% endif %}
+                                
+                                <div class="timeline-item {{ status_class }}">
+                                    <div class="d-flex align-items-start">
+                                        <div class="timeline-icon {{ status_class }}">
+                                            <i class="fas {{ icon_class }}"></i>
+                                        </div>
+                                        <div class="flex-grow-1">
+                                            <div class="d-flex justify-content-between align-items-center flex-wrap">
+                                                <h5 class="mb-1">
+                                                    <i class="fas {{ data.icon }}"></i> 
+                                                    {{ data.role }} Approval
+                                                    {% if approval.status == 'Approved' %}
+                                                        <span class="badge bg-success ms-2">✓ Approved</span>
+                                                    {% elif approval.status == 'Rejected' %}
+                                                        <span class="badge bg-danger ms-2">✗ Rejected</span>
+                                                    {% elif level == requisition.current_approval_level and requisition.status != 'Approved' and requisition.status != 'Rejected' %}
+                                                        <span class="badge bg-warning ms-2">⏳ Pending</span>
+                                                    {% else %}
+                                                        <span class="badge bg-secondary ms-2">⌛ Waiting</span>
+                                                    {% endif %}
+                                                </h5>
+                                                {% if approval.date_approved %}
+                                                <small class="text-muted">
+                                                    <i class="fas fa-calendar-alt"></i> {{ approval.date_approved.strftime('%Y-%m-%d %H:%M') }}
+                                                </small>
+                                                {% endif %}
+                                            </div>
+                                            
+                                            {% if approval.approver %}
+                                            <p class="mb-1 text-muted">
+                                                <i class="fas fa-user-circle"></i> Approved by: {{ approval.approver.name }}
+                                            </p>
+                                            {% endif %}
+                                            
+                                            {% if approval.comments %}
+                                            <p class="mb-0 small text-muted">
+                                                <i class="fas fa-comment"></i> Comments: {{ approval.comments }}
+                                            </p>
+                                            {% endif %}
+                                        </div>
+                                    </div>
+                                </div>
+                            {% endif %}
+                        {% endfor %}
+                    </div>
+                    
+                    {% if requisition.status == 'Approved' %}
+                    <div class="alert alert-success mt-3">
+                        <i class="fas fa-check-circle"></i> 
+                        <strong>Requisition Fully Approved!</strong> This requisition has completed all approval stages and is ready for procurement processing.
+                    </div>
+                    {% elif requisition.status == 'Rejected' %}
+                    <div class="alert alert-danger mt-3">
+                        <i class="fas fa-exclamation-triangle"></i> 
+                        <strong>Requisition Rejected!</strong> This requisition was rejected and cannot proceed further. Please contact the rejecting department for more information.
+                    </div>
+                    {% else %}
+                    <div class="alert alert-info mt-3">
+                        <i class="fas fa-info-circle"></i> 
+                        <strong>Current Status:</strong> Awaiting <strong>{{ get_role_for_level(requisition.current_approval_level) }}</strong> approval.
+                        {% if requisition.requestor_id == session['user_id'] %}
+                        <br>You will receive email notifications as your requisition progresses through each approval stage.
+                        {% endif %}
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
