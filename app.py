@@ -89,21 +89,55 @@ def dashboard():
 
 @app.route('/requisition/new', methods=['GET', 'POST'])
 def new_requisition():
-    if 'user_id' not in session: return redirect(url_for('login'))
+    # 1. Force check for logged-in user
+    if 'user_id' not in session:
+        flash('You must be logged in to create a requisition.', 'danger')
+        return redirect(url_for('login'))
+        
     if request.method == 'POST':
         try:
-            req = Requisition(requestor_id=session['user_id'], reason=request.form.get('reason'), status='Pending Supervisor Approval', current_approver_role='Supervisor')
+            # 2. Extract and validate user ID from session
+            user_id = session.get('user_id')
+            if not user_id:
+                raise ValueError("User session expired.")
+
+            # 3. Create and add Requisition
+            req = Requisition(
+                requestor_id=user_id,
+                reason=request.form.get('reason', '').strip(),
+                status='Pending Supervisor Approval',
+                current_approver_role='Supervisor'
+            )
             db.session.add(req)
-            db.session.flush() # CRITICAL: Assigns ID for the relationship
-            for desc, qty, cost in zip(request.form.getlist('description[]'), request.form.getlist('quantity[]'), request.form.getlist('cost[]')):
-                if desc.strip():
-                    db.session.add(RequisitionItem(requisition_id=req.id, description=desc.strip(), quantity=int(qty or 1), estimated_cost=float(str(cost).replace('KES','').replace(',','') or 0)))
+            
+            # 4. Flush to get the ID for the relationship
+            db.session.flush() 
+            
+            # 5. Add items
+            descriptions = request.form.getlist('description[]')
+            quantities = request.form.getlist('quantity[]')
+            costs = request.form.getlist('cost[]')
+            
+            for desc, qty, cost in zip(descriptions, quantities, costs):
+                if desc and desc.strip():
+                    item = RequisitionItem(
+                        requisition_id=req.id,
+                        description=desc.strip(),
+                        quantity=int(qty) if qty and qty.isdigit() else 1,
+                        estimated_cost=float(str(cost).replace('KES', '').replace(',', '').strip() or 0.0)
+                    )
+                    db.session.add(item)
+            
             db.session.commit()
-            flash('Submitted successfully!', 'success')
+            flash('Requisition submitted successfully!', 'success')
             return redirect(url_for('dashboard'))
-        except Exception:
-            db.session.rollback()
-            flash('Error saving requisition. Please try again.', 'danger')
+            
+        except Exception as e:
+            db.session.rollback() # Important to clear bad transaction
+            print(f"DEBUG: Critical failure: {e}")
+            flash('System error: Could not save requisition. Please try again.', 'danger')
+            return redirect(url_for('dashboard'))
+            
     return render_template('requisition.html')
 
 @app.route('/logout')
