@@ -57,24 +57,6 @@ class RequisitionItem(db.Model):
 with app.app_context():
     db.create_all()
 
-# ------------------ Helpers ------------------
-def send_email_notification(recipient_email, subject, body_text):
-    msg = Message(subject, sender=app.config['MAIL_USERNAME'], recipients=[recipient_email])
-    msg.body = body_text
-    threading.Thread(target=lambda: mail.send(msg)).start()
-
-def route_to_next_approver(requisition, dashboard_url, active_sender_name):
-    hierarchy = ['Supervisor', 'HR', 'Procurement', 'GM']
-    current_idx = hierarchy.index(requisition.current_approver_role)
-    if current_idx + 1 < len(hierarchy):
-        next_role = hierarchy[current_idx + 1]
-        requisition.current_approver_role = next_role
-        requisition.status = f'Pending {next_role} Approval'
-    else:
-        requisition.status = 'Approved'
-        requisition.current_approver_role = 'None'
-    db.session.commit()
-
 # ------------------ Routes ------------------
 @app.route('/')
 def index():
@@ -112,7 +94,7 @@ def new_requisition():
         try:
             req = Requisition(requestor_id=session['user_id'], reason=request.form.get('reason'), status='Pending Supervisor Approval', current_approver_role='Supervisor')
             db.session.add(req)
-            db.session.flush()
+            db.session.flush() # CRITICAL: Assigns ID for the relationship
             for desc, qty, cost in zip(request.form.getlist('description[]'), request.form.getlist('quantity[]'), request.form.getlist('cost[]')):
                 if desc.strip():
                     db.session.add(RequisitionItem(requisition_id=req.id, description=desc.strip(), quantity=int(qty or 1), estimated_cost=float(str(cost).replace('KES','').replace(',','') or 0)))
@@ -121,7 +103,7 @@ def new_requisition():
             return redirect(url_for('dashboard'))
         except Exception:
             db.session.rollback()
-            flash('Error saving requisition.', 'danger')
+            flash('Error saving requisition. Please try again.', 'danger')
     return render_template('requisition.html')
 
 @app.route('/logout')
