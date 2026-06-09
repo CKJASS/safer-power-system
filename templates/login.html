@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Safer Power Group - Portal Access</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <style>
+        body { 
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            min-height: 100vh;
+        }
+        .card { 
+            border-radius: 15px; 
+            border: none; 
+            box-shadow: 0 10px 40px rgba(0,0,0,0.1);
+            backdrop-filter: blur(10px);
+            background: rgba(255,255,255,0.95);
+        }
+        .btn-custom { 
+            background: linear-gradient(135deg, #f0a500 0%, #d49200 100%);
+            color: white; 
+            font-weight: 600;
+            border: none;
+            transition: transform 0.2s;
+        }
+        .btn-custom:hover { 
+            background: linear-gradient(135deg, #d49200 0%, #b87a00 100%);
+            color: white;
+            transform: translateY(-2px);
+        }
+        .change-pw-link { 
+            font-size: 0.85rem; 
+            color: #f0a500; 
+            text-decoration: none; 
+            cursor: pointer; 
+            font-weight: 500;
+        }
+        .change-pw-link:hover { 
+            text-decoration: underline; 
+            color: #d49200; 
+        }
+        .portal-logo { 
+            max-height: 80px; 
+            margin-bottom: 15px;
+            filter: drop-shadow(0 4px 6px rgba(0,0,0,0.1));
+        }
+        .nav-pills .nav-link.active {
+            background: linear-gradient(135deg, #f0a500 0%, #d49200 100%);
+        }
+        .nav-pills .nav-link {
+            color: #6c757d;
+            font-weight: 500;
+        }
+        .role-badge {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: rgba(0,0,0,0.7);
+            color: white;
+            padding: 8px 15px;
+            border-radius: 20px;
+            font-size: 12px;
+            z-index: 1000;
+        }
+        .form-control:focus {
+            border-color: #f0a500;
+            box-shadow: 0 0 0 0.2rem rgba(240, 165, 0, 0.25);
+        }
+    </style>
+</head>
+<body>
+<div class="container d-flex flex-column align-items-center justify-content-center min-vh-100 py-4">
+    <div class="text-center mb-4">
+        <!-- Logo Applied Verbatim -->
+        <img src="{{ url_for('static', filename='logo.png') }}" alt="company logo" class="img-fluid mx-auto d-block portal-logo" style="max-width: 130px;">
+        <h2 class="fw-bold text-white mt-3 mb-2">Safer Power Group</h2>
+        <p class="text-white-50 small">Employee Requisition & Multi-Level Workflow Automation System</p>
+    </div>
+
+    <div class="col-12 col-md-8 col-lg-5">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, msg in messages %}
+                    <div class="alert alert-{{ category }} alert-dismissible fade show shadow-sm" role="alert">
+                        <i class="fas fa-{% if category == 'success' %}check-circle{% elif category == 'danger' %}exclamation-triangle{% else %}info-circle{% endif %} me-2"></i>
+                        {{ msg }}
+                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                    </div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+
+        <div class="card p-4 mb-3">
+            <ul class="nav nav-pills nav-justified mb-3" id="pills-tab" role="tablist">
+                <li class="nav-item">
+                    <button class="nav-link active" id="pills-login-tab" data-bs-toggle="pill" data-bs-target="#pills-login" type="button" role="tab">
+                        <i class="fas fa-sign-in-alt me-2"></i>Sign In
+                    </button>
+                </li>
+                <li class="nav-item">
+                    <button class="nav-link" id="pills-register-tab" data-bs-toggle="pill" data-bs-target="#pills-register" type="button" role="tab">
+                        <i class="fas fa-user-plus me-2"></i>Create Account
+                    </button>
+                </li>
+            </ul>
+            
+            <div class="tab-content" id="pills-tabContent">
+                <!-- Login Tab -->
+                <div class="tab-pane fade show active" id="pills-login" role="tabpanel">
+                    <form method="POST" action="{{ url_for('login') }}">
+                        <input type="hidden" name="action" value="login">
+                        <div class="mb-3">
+                            <label class="form-label fw-semibold">
+                                <i class="fas fa-envelope me-1"></i>Corporate Email
+                            </label>
+                            <input type="email" name="email" class="form-control" required placeholder="name@saferpower.com">
+                        </div>
+                        <div class="mb-3">
+                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                <label class="form-label fw-semibold m-0">
+                                    <i class="fas fa-lock me-1"></i>Password
+                                </label>
+                                <span class="change-pw-link" data-bs-toggle="modal" data-bs-target="#changePasswordModal">
+                                    <i class="fas fa-key me-1"></i>Change Password?
+                                </span>
+                            </div>
+                            <input type="password" name="password" class="form-control" required placeholder="••••••••">
+                        </div>
+                        <button type="submit" class="btn btn-custom w-100 py-2">
+                            <i class="fas fa-arrow-right-to-bracket me-2"></i>Log In
+                        </button>
+                    </form>
+                    
+                    <hr class="my-4">
+                    
+                    <div class="text-center">
+                        <small class="text-muted">Approval Workflow:</small><br>
+                        <div class="d-flex justify-content-center gap-2 mt-2 flex-wrap">
+                            <span class="badge bg-primary">1. Supervisor</span>
+                            <i class="fas fa-arrow-right text-muted"></i>
+                            <span class="badge bg-info">2. HR</span>
+                            <i class="fas fa-arrow-right text-muted"></i>
+                            <span class="badge bg-warning">3. Procurement</span>
+                            <i class="fas fa-arrow-right text-muted"></i>
+                            <span class="badge bg-success">4. Finance</span>
+                            <i class="fas fa-arrow-right text-muted"></i>
+                            <span class="badge bg-danger">5. GM</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Register Tab -->
+                <div class="tab-pane fade" id="pills-register" role="tabpanel">
+                    <form method="POST" action="{{ url_for('login') }}">
+                        <input type="hidden" name="action" value="register">
+                        <div class="mb-3">
+                            <label class="form-label fw-semibold">
+                                <i class="fas fa-user me-1"></i>Full Name
+                            </label>
+                            <input type="text" name="name" class="form-control" required placeholder="Jane Doe">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label fw-semibold">
+                                <i class="fas fa-envelope me-1"></i>Corporate Email
+                            </label>
+                            <input type="email" name="email" class="form-control" required placeholder="jane.doe@saferpower.com">
+                            <small class="text-muted">Must be a valid company email address</small>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label fw-semibold">
+                                <i class="fas fa-briefcase me-1"></i>Account Role
+                            </label>
+                            <select name="role" class="form-select" required>
+                                <option value="">Select your role...</option>
+                                {% for role in roles %}
+                                    <option value="{{ role }}">{{ role }}</option>
+                                {% endfor %}
+                            </select>
+                            <small class="text-muted">
+                                <i class="fas fa-info-circle"></i> 
+                                {% if session.get('user_role') != 'GM' %}
+                                Employee accounts require department assignment by HR/Admin
+                                {% endif %}
+                            </small>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label fw-semibold">
+                                <i class="fas fa-lock me-1"></i>Create Password
+                            </label>
+                            <input type="password" name="password" class="form-control" required placeholder="Minimum 6 characters">
+                        </div>
+                        <button type="submit" class="btn btn-success w-100 py-2">
+                            <i class="fas fa-user-check me-2"></i>Register Account
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+        
+        <div class="text-center">
+            <small class="text-white-50">
+                <i class="fas fa-shield-alt me-1"></i> Secure System | All transactions are logged
+            </small>
+        </div>
+    </div>
+</div>
+
+<!-- Change Password Modal -->
+<div class="modal fade" id="changePasswordModal" tabindex="-1" aria-labelledby="changePasswordModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header border-0">
+                <h5 class="modal-title fw-bold text-dark" id="changePasswordModalLabel">
+                    <i class="fas fa-key text-warning me-2"></i>Change System Password
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form method="POST" action="{{ url_for('login') }}">
+                <div class="modal-body">
+                    <input type="hidden" name="action" value="update_password">
+                    <p class="text-muted small mb-3">
+                        <i class="fas fa-info-circle"></i> 
+                        Enter your registered email and new password to update your login credentials.
+                    </p>
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">
+                            <i class="fas fa-envelope me-1"></i>Corporate Email Address
+                        </label>
+                        <input type="email" name="email" class="form-control" required placeholder="name@saferpower.com">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">
+                            <i class="fas fa-lock me-1"></i>New Password
+                        </label>
+                        <input type="password" name="password" class="form-control" required placeholder="Enter new password">
+                        <small class="text-muted">Password must be at least 6 characters</small>
+                    </div>
+                </div>
+                <div class="modal-footer border-0">
+                    <button type="button" class="btn btn-light border" data-bs-dismiss="modal">
+                        <i class="fas fa-times me-1"></i>Cancel
+                    </button>
+                    <button type="submit" class="btn btn-custom px-4">
+                        <i class="fas fa-save me-1"></i>Update Password
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+    // Password validation for registration
+    document.querySelector('#pills-register form')?.addEventListener('submit', function(e) {
+        const password = this.querySelector('input[name="password"]').value;
+        if (password.length < 6) {
+            e.preventDefault();
+            alert('Password must be at least 6 characters long!');
+        }
+    });
+    
+    // Password validation for change password
+    document.querySelector('#changePasswordModal form')?.addEventListener('submit', function(e) {
+        const password = this.querySelector('input[name="password"]').value;
+        if (password.length < 6) {
+            e.preventDefault();
+            alert('Password must be at least 6 characters long!');
+        }
+    });
+    
+    // Auto-dismiss alerts after 5 seconds
+    setTimeout(function() {
+        document.querySelectorAll('.alert').forEach(function(alert) {
+            const bsAlert = new bootstrap.Alert(alert);
+            bsAlert.close();
+        });
+    }, 5000);
+</script>
+</body>
+</html>
