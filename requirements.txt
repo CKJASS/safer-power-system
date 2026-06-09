@@ -1,0 +1,18 @@
+# Core Framework
+Flask==3.0.3
+Flask-SQLAlchemy==3.1.1
+Werkzeug==3.0.3
+
+# Excel Export
+openpyxl==3.1.5
+
+# Email Support (optional - uncomment if needed)
+# secure-smtplib==0.1.1
+# email-validator==2.1.1
+
+# Database (SQLite is built-in, but if you want PostgreSQL later)
+# psycopg2-binary==2.9.9
+
+# For production deployment
+# gunicorn==21.2.0
+# python-dotenv==1.0.1
